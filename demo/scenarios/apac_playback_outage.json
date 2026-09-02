@@ -1,0 +1,136 @@
+{
+  "scenario_id": "apac_playback_outage_premiere",
+  "title": "Premiere: 'The Last Signal' — APAC Playback Degradation",
+  "broadcast": {
+    "event_name": "The Last Signal - Global Live Premiere",
+    "concurrent_viewers": 1845200,
+    "primary_codec": "HEVC / H.265 4K HDR",
+    "delivery_protocols": ["HLS", "DASH"],
+    "cdn_providers": ["Fastly-Edge", "Cloudflare-Stream"]
+  },
+  "alert": {
+    "alert_name": "APAC-Playback-Failure-Critical",
+    "status": "firing",
+    "severity": "critical",
+    "fingerprint": "a8f3b9c2410e",
+    "starts_at": "2026-09-02T21:18:00Z",
+    "labels": {
+      "alertname": "APAC-Playback-Failure-Critical",
+      "region": "apac",
+      "service": "transcoding-service",
+      "cluster": "prod-apac-singapore-01",
+      "severity": "critical"
+    },
+    "annotations": {
+      "summary": "Playback error rate in APAC region exceeded 15% threshold (Current: 18.7%)",
+      "dashboard_url": "https://studiopulse.grafana.net/d/live-apac-stream/live-stream-apac-core-delivery"
+    }
+  },
+  "telemetry": {
+    "prometheus": {
+      "playback_error_rate": {
+        "query": "sum(rate(playback_errors_total{region='apac'}[5m])) / sum(rate(playback_requests_total{region='apac'}[5m])) * 100",
+        "current_value": 18.7,
+        "baseline_value": 0.4,
+        "threshold": 15.0,
+        "unit": "%",
+        "trend": "increasing",
+        "history": [
+          {"timestamp": "2026-09-02T21:10:00Z", "value": 0.42},
+          {"timestamp": "2026-09-02T21:12:00Z", "value": 0.45},
+          {"timestamp": "2026-09-02T21:14:00Z", "value": 1.2},
+          {"timestamp": "2026-09-02T21:16:00Z", "value": 7.8},
+          {"timestamp": "2026-09-02T21:18:00Z", "value": 15.4},
+          {"timestamp": "2026-09-02T21:20:00Z", "value": 18.7}
+        ]
+      },
+      "egress_latency_p95": {
+        "query": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{region='apac'}[5m])) by (le))",
+        "current_value": 842,
+        "baseline_value": 180,
+        "unit": "ms"
+      },
+      "active_viewers": {
+        "query": "sum(live_concurrent_viewers{region='apac'})",
+        "current_value": 412000,
+        "baseline_value": 470000,
+        "drop_rate_percent": 12.3
+      }
+    },
+    "loki": {
+      "query": "{app='transcoder', region='apac'} |= 'error'",
+      "entries": [
+        {
+          "timestamp": "2026-09-02T21:14:22Z",
+          "pod": "transcoder-apac-worker-node-04",
+          "level": "WARN",
+          "message": "[CodecEngine] Deprecated profile flag parsed: --enable-h265-10b-experimental"
+        },
+        {
+          "timestamp": "2026-09-02T21:16:05Z",
+          "pod": "transcoder-apac-worker-node-04",
+          "level": "ERROR",
+          "message": "FATAL: Segment transcoding buffer overflow: frame_id=982410 slice=2, SIGSEGV encountered in libx265_v4.8.so"
+        },
+        {
+          "timestamp": "2026-09-02T21:16:08Z",
+          "pod": "transcoder-apac-worker-node-02",
+          "level": "ERROR",
+          "message": "FATAL: Transcoder child process exited with signal 11 (Segmentation fault) during chunk 48102.ts"
+        },
+        {
+          "timestamp": "2026-09-02T21:17:45Z",
+          "pod": "edge-packager-apac-01",
+          "level": "ERROR",
+          "message": "504 Gateway Timeout fetching video chunk from upstream transcoder: http://transcoder-internal.apac.svc.cluster.local:8080/segment/48102.ts"
+        }
+      ]
+    },
+    "tempo": {
+      "query": "{ span.status = error && service.name = 'transcoding-service' }",
+      "trace_id": "8f3b9c2410e47a9d182b7c4a",
+      "root_span": {
+        "service": "api-gateway",
+        "operation": "GET /live/stream/chunk/48102.ts",
+        "duration_ms": 5012,
+        "status": "error",
+        "child_spans": [
+          {
+            "service": "edge-packager",
+            "operation": "PackageHLSChunk",
+            "duration_ms": 5008,
+            "status": "error",
+            "child_spans": [
+              {
+                "service": "transcoding-service",
+                "operation": "TranscodeSegment",
+                "duration_ms": 5002,
+                "status": "error",
+                "error_details": "Transcoder worker thread crashed (SIGSEGV) while processing H.265 profile stream"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "deployment": {
+    "service": "transcoding-service",
+    "cluster": "prod-apac-singapore-01",
+    "deployed_version": "v4.8.0-build-841",
+    "previous_version": "v4.7.4-stable",
+    "deployed_at": "2026-09-02T21:12:00Z",
+    "author": "ci-release-bot@studiopulse.media",
+    "git_commit": "e9a2b71",
+    "commit_message": "feat(transcoder): upgrade libx265 encoder to v4.8 with experimental 10-bit profile optimizations"
+  },
+  "expected_diagnosis": {
+    "probable_root_cause": "Transcoding Service v4.8 rollout in APAC cluster introduced a buffer overflow / SIGSEGV fault in libx265_v4.8 during 10-bit H.265 segment encoding.",
+    "affected_regions": ["Singapore", "Malaysia", "Indonesia", "Thailand"],
+    "affected_viewers_estimated": 218000,
+    "confidence_score": 91,
+    "incident_severity": "P1 - CRITICAL",
+    "mitigation_action": "Execute instant rollback to v4.7.4-stable and divert APAC traffic to backup Tokyo edge transcoders.",
+    "rollback_command": "kubectl rollout undo deployment/transcoding-service -n media-prod --to-revision=47"
+  }
+}

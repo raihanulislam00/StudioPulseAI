@@ -1,0 +1,46 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: studiopulse-agent
+  labels:
+    cloud.googleapis.com/location: us-central1
+    app: studiopulse-agent
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "5"
+        run.googleapis.com/cpu-throttling: "true"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 300
+      containers:
+        - image: gcr.io/PROJECT_ID/studiopulse-agent:latest
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          env:
+            - name: GRAFANA_MCP_MODE
+              value: "simulated"
+            - name: GEMINI_MODEL
+              value: "gemini-2.5-flash"
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: GEMINI_API_KEY
+            - name: GRAFANA_URL
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: GRAFANA_URL
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: GRAFANA_SERVICE_ACCOUNT_TOKEN
